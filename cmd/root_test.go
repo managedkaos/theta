@@ -9,6 +9,9 @@ import (
 )
 
 func execute(args ...string) (string, error) {
+	if args == nil {
+		args = []string{}
+	}
 	root := NewRootCommand()
 	var out bytes.Buffer
 	root.SetOut(&out)
