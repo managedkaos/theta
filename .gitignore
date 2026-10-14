@@ -31,3 +31,12 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+heads-and-tails-main/
+
+# Generated theta binaries, release archives, and man pages
+/bin/
+/dist/
+/man/
+/theta
+/theta.exe
