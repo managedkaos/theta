@@ -1,0 +1,77 @@
+# GoReleaser configuration for theta.
+# Docs: https://goreleaser.com
+#
+# The git tag is the authoritative version: {{ .Version }} is the tag with the
+# leading "v" stripped by GoReleaser. Releases and snapshots inject cmd.Version;
+# local Make builds inject the same variable using git describe.
+version: 2
+
+project_name: theta
+
+before:
+  hooks:
+    - go mod tidy
+    - go run ./tools/manpages
+
+builds:
+  - id: theta
+    main: .
+    binary: theta
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # Keep exactly the five supported targets: linux amd64/arm64,
+    # darwin amd64/arm64, windows amd64. Windows arm64 is not shipped.
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/managedkaos/theta/cmd.Version={{ .Version }}
+      - -X github.com/managedkaos/theta/cmd.GitBranch={{ .Branch }}
+      - -X github.com/managedkaos/theta/cmd.BuildDate={{ .CommitDate }}
+      - -X github.com/managedkaos/theta/cmd.BuildEnvironment=goreleaser
+
+archives:
+  - id: theta
+    ids:
+      - theta
+    # Produce names like theta-linux-amd64 / theta-windows-amd64 to match the
+    # existing smoke-test job's expectations.
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    formats:
+      - tar.gz
+    files:
+      - README.md
+      - LICENSE*
+      - man/*.1
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  draft: false
+  prerelease: auto

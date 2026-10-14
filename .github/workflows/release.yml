@@ -1,0 +1,117 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on any tag starting with v (e.g., v1.0.0)
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.2.3)'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build binaries (snapshot for testing)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7.0.0
+        with:
+          ref: refs/tags/${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0 # GoReleaser needs full history and tags
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Cache Go modules
+        uses: actions/cache@v5.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Test source
+        run: go test -race ./...
+
+      # Test archives from the requested tag using snapshot version metadata.
+      # The release job rebuilds with the release version after smoke tests pass.
+      - name: Build release artifacts (snapshot)
+        uses: goreleaser/goreleaser-action@v6.4.0
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean
+
+      - name: Show build artifacts
+        run: ls -la dist || true
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: dist
+          path: dist
+
+  test:
+    name: Test built binaries
+    needs: build
+    uses: ./.github/workflows/test-binaries.yml
+    with:
+      artifact_name: dist
+      binary_name: theta
+
+  release:
+    name: Create release
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7.0.0
+        with:
+          # Check out the exact tag being released for both triggers: the tag
+          # ref on push, or the dispatch input tag. GoReleaser derives the
+          # version from this ref.
+          ref: refs/tags/${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0 # GoReleaser needs full history and tags
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Cache Go modules
+        uses: actions/cache@v5.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      # Publish the release. GoReleaser rebuilds with release version metadata
+      # from the tagged commit and creates the GitHub release with
+      # archives, checksums, and generated changelog.
+      - name: Publish release
+        uses: goreleaser/goreleaser-action@v6.4.0
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
